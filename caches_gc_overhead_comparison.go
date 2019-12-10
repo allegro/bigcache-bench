@@ -10,22 +10,76 @@ import (
 	"github.com/coocood/freecache"
 )
 
+var previousPause time.Duration
+
 func gcPause() time.Duration {
 	runtime.GC()
 	var stats debug.GCStats
 	debug.ReadGCStats(&stats)
-	return stats.PauseTotal
+	pause := stats.PauseTotal - previousPause
+	previousPause = stats.PauseTotal
+	return pause
 }
 
 const (
 	entries   = 20000000
 	valueSize = 100
+	repeat    = 50
 )
 
 func main() {
 	debug.SetGCPercent(10)
 	fmt.Println("Number of entries: ", entries)
+	fmt.Println("Number of repeats: ", repeat)
 
+	fmt.Println("GC pause for startup: ", gcPause())
+
+	stdMap()
+	freeCache()
+	bigCache()
+
+	fmt.Println("GC pause for warmup: ", gcPause())
+
+	for i := 0; i < repeat; i++ {
+		freeCache()
+	}
+	fmt.Println("GC pause for freecache: ", gcPause())
+	for i := 0; i < repeat; i++ {
+		bigCache()
+	}
+	fmt.Println("GC pause for bigcache: ", gcPause())
+	for i := 0; i < repeat; i++ {
+		stdMap()
+	}
+	fmt.Println("GC pause for map: ", gcPause())
+}
+
+func stdMap() {
+	mapCache := make(map[string][]byte)
+	for i := 0; i < entries; i++ {
+		key, val := generateKeyValue(i, valueSize)
+		mapCache[key] = val
+	}
+}
+
+func freeCache() {
+	freeCache := freecache.NewCache(entries * 200) //allocate entries * 200 bytes
+	for i := 0; i < entries; i++ {
+		key, val := generateKeyValue(i, valueSize)
+		if err := freeCache.Set([]byte(key), val, 0); err != nil {
+			fmt.Println("Error in set: ", err.Error())
+		}
+	}
+
+	firstKey, _ := generateKeyValue(1, valueSize)
+	checkFirstElement(freeCache.Get([]byte(firstKey)))
+
+	if freeCache.OverwriteCount() != 0 {
+		fmt.Println("Overwritten: ", freeCache.OverwriteCount())
+	}
+}
+
+func bigCache() {
 	config := bigcache.Config{
 		Shards:             256,
 		LifeWindow:         100 * time.Minute,
@@ -42,40 +96,6 @@ func main() {
 
 	firstKey, _ := generateKeyValue(1, valueSize)
 	checkFirstElement(bigcache.Get(firstKey))
-
-	fmt.Println("GC pause for bigcache: ", gcPause())
-	bigcache = nil
-	gcPause()
-
-	//------------------------------------------
-
-	freeCache := freecache.NewCache(entries * 200) //allocate entries * 200 bytes
-	for i := 0; i < entries; i++ {
-		key, val := generateKeyValue(i, valueSize)
-		if err := freeCache.Set([]byte(key), val, 0); err != nil {
-			fmt.Println("Error in set: ", err.Error())
-		}
-	}
-
-	firstKey, _ = generateKeyValue(1, valueSize)
-	checkFirstElement(freeCache.Get([]byte(firstKey)))
-
-	if freeCache.OverwriteCount() != 0 {
-		fmt.Println("Overwritten: ", freeCache.OverwriteCount())
-	}
-	fmt.Println("GC pause for freecache: ", gcPause())
-	freeCache = nil
-	gcPause()
-
-	//------------------------------------------
-
-	mapCache := make(map[string][]byte)
-	for i := 0; i < entries; i++ {
-		key, val := generateKeyValue(i, valueSize)
-		mapCache[key] = val
-	}
-	fmt.Println("GC pause for map: ", gcPause())
-
 }
 
 func checkFirstElement(val []byte, err error) {
