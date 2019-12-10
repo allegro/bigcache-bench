@@ -2,21 +2,16 @@ package main
 
 import (
 	"fmt"
-	"github.com/allegro/bigcache/v2"
-	"github.com/cespare/xxhash"
-	"github.com/coocood/freecache"
 	"math/rand"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/allegro/bigcache/v2"
+	"github.com/coocood/freecache"
 )
 
 const maxEntrySize = 256
-
-var hashes = []bigcache.Hasher{
-	nil,
-	&xxHasher{},
-}
 
 func BenchmarkMapSet(b *testing.B) {
 	m := make(map[string][]byte, b.N)
@@ -40,13 +35,9 @@ func BenchmarkFreeCacheSet(b *testing.B) {
 }
 
 func BenchmarkBigCacheSet(b *testing.B) {
-	for _, hashFunc := range hashes {
-		b.Run(fmt.Sprintf("%T", hashFunc), func(b *testing.B) {
-			cache := initBigCache(b.N)
-			for i := 0; i < b.N; i++ {
-				cache.Set(key(i), value())
-			}
-		})
+	cache := initBigCache(b.N)
+	for i := 0; i < b.N; i++ {
+		cache.Set(key(i), value())
 	}
 }
 
@@ -97,38 +88,30 @@ func BenchmarkFreeCacheGet(b *testing.B) {
 }
 
 func BenchmarkBigCacheGet(b *testing.B) {
-	for _, hashFunc := range hashes {
-		b.Run(fmt.Sprintf("%T", hashFunc), func(b *testing.B) {
-			b.StopTimer()
-			cache := initBigCache(b.N)
-			for i := 0; i < b.N; i++ {
-				cache.Set(key(i), value())
-			}
+	b.StopTimer()
+	cache := initBigCache(b.N)
+	for i := 0; i < b.N; i++ {
+		cache.Set(key(i), value())
+	}
 
-			b.StartTimer()
-			for i := 0; i < b.N; i++ {
-				cache.Get(key(i))
-			}
-		})
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		cache.Get(key(i))
 	}
 }
 
 func BenchmarkBigCacheSetParallel(b *testing.B) {
-	for _, hashFunc := range hashes {
-		b.Run(fmt.Sprintf("%T", hashFunc), func(b *testing.B) {
-			cache := initBigCache(b.N)
-			rand.Seed(time.Now().Unix())
+	cache := initBigCache(b.N)
+	rand.Seed(time.Now().Unix())
 
-			b.RunParallel(func(pb *testing.PB) {
-				id := rand.Intn(1000)
-				counter := 0
-				for pb.Next() {
-					cache.Set(parallelKey(id, counter), value())
-					counter = counter + 1
-				}
-			})
-		})
-	}
+	b.RunParallel(func(pb *testing.PB) {
+		id := rand.Intn(1000)
+		counter := 0
+		for pb.Next() {
+			cache.Set(parallelKey(id, counter), value())
+			counter = counter + 1
+		}
+	})
 }
 
 func BenchmarkFreeCacheSetParallel(b *testing.B) {
@@ -157,24 +140,20 @@ func BenchmarkConcurrentMapSetParallel(b *testing.B) {
 }
 
 func BenchmarkBigCacheGetParallel(b *testing.B) {
-	for _, hashFunc := range hashes {
-		b.Run(fmt.Sprintf("%T", hashFunc), func(b *testing.B) {
-			b.StopTimer()
-			cache := initBigCache(b.N)
-			for i := 0; i < b.N; i++ {
-				cache.Set(key(i), value())
-			}
-
-			b.StartTimer()
-			b.RunParallel(func(pb *testing.PB) {
-				counter := 0
-				for pb.Next() {
-					cache.Get(key(counter))
-					counter = counter + 1
-				}
-			})
-		})
+	b.StopTimer()
+	cache := initBigCache(b.N)
+	for i := 0; i < b.N; i++ {
+		cache.Set(key(i), value())
 	}
+
+	b.StartTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		counter := 0
+		for pb.Next() {
+			cache.Get(key(counter))
+			counter = counter + 1
+		}
+	})
 }
 
 func BenchmarkFreeCacheGetParallel(b *testing.B) {
@@ -237,10 +216,4 @@ func initBigCache(entriesInWindow int) *bigcache.BigCache {
 	})
 
 	return cache
-}
-
-type xxHasher struct{}
-
-func (x *xxHasher) Sum64(b string) uint64 {
-	return xxhash.Sum64String(b)
 }
