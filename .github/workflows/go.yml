@@ -9,12 +9,13 @@ jobs:
       fail-fast: true
       max-parallel: 2
       matrix:
-        go: ["1.12.x", "1.13.x"]
+        go: ["stable", "oldstable"]
     steps:
     - name: Set up Go ${{matrix.go}}
       uses: actions/setup-go@v1
       with:
         go-version: ${{matrix.go}}
+        check-latest: true
       id: go
     - name: Check out code into the Go module directory
       uses: actions/checkout@v1
