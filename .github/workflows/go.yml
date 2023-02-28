@@ -29,8 +29,8 @@ jobs:
     - name: Static code check
       run: |
           export PATH=$PATH:$(go env GOPATH)/bin
-          go get -u github.com/gordonklaus/ineffassign
-          ineffassign .
+          go install github.com/gordonklaus/ineffassign
+          ineffassign ./...
           go vet ./...
     - name: Build
       run: go build -v .
@@ -42,14 +42,15 @@ jobs:
       fail-fast: true
       max-parallel: 2
       matrix:
-        go: ["1.12.x", "1.13.x"]
+        go: ["stable", "oldstable"]
     steps:
     - name: Set up Go ${{matrix.go}}
       uses: actions/setup-go@v3
       with:
         go-version: ${{matrix.go}}
+        check-latest: true
       id: go
     - name: Check out code into the Go module directory
       uses: actions/checkout@v3
     - name: Run Test
-      run: go test
+      run: go test -v ./...
