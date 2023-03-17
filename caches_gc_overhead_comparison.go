@@ -1,7 +1,9 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"time"
@@ -21,40 +23,48 @@ func gcPause() time.Duration {
 	return pause
 }
 
-const (
-	entries   = 20000000
-	valueSize = 100
-	repeat    = 50
-)
-
 func main() {
+
+	c := ""
+	entries := 0
+	repeat := 0
+	valueSize := 0
+	flag.StringVar(&c, "cache", "bigcache", "cache to bench.")
+	flag.IntVar(&entries, "entries", 20000000, "number of entries to test")
+	flag.IntVar(&repeat, "repeat", 50, "number of repetitions")
+	flag.IntVar(&valueSize, "value-size", 100, "size of single entry value in bytes")
+	flag.Parse()
+
 	debug.SetGCPercent(10)
+	fmt.Println("Cache:             ", c)
 	fmt.Println("Number of entries: ", entries)
 	fmt.Println("Number of repeats: ", repeat)
+	fmt.Println("Value size:        ", valueSize)
 
+	var benchFunc func(entries, valueSize int)
+
+	switch c {
+	case "freecache":
+		benchFunc = freeCache
+	case "bigcache":
+		benchFunc = bigCache
+	case "stdmap":
+		benchFunc = stdMap
+	default:
+		fmt.Printf("unknown cache: %s", c)
+		os.Exit(1)
+	}
+
+	benchFunc(entries, valueSize)
 	fmt.Println("GC pause for startup: ", gcPause())
-
-	stdMap()
-	freeCache()
-	bigCache()
-
-	fmt.Println("GC pause for warmup: ", gcPause())
-
 	for i := 0; i < repeat; i++ {
-		freeCache()
+		benchFunc(entries, valueSize)
 	}
-	fmt.Println("GC pause for freecache: ", gcPause())
-	for i := 0; i < repeat; i++ {
-		bigCache()
-	}
-	fmt.Println("GC pause for bigcache: ", gcPause())
-	for i := 0; i < repeat; i++ {
-		stdMap()
-	}
-	fmt.Println("GC pause for map: ", gcPause())
+
+	fmt.Printf("GC pause for %s: %s\n", c, gcPause())
 }
 
-func stdMap() {
+func stdMap(entries, valueSize int) {
 	mapCache := make(map[string][]byte)
 	for i := 0; i < entries; i++ {
 		key, val := generateKeyValue(i, valueSize)
@@ -62,7 +72,7 @@ func stdMap() {
 	}
 }
 
-func freeCache() {
+func freeCache(entries, valueSize int) {
 	freeCache := freecache.NewCache(entries * 200) //allocate entries * 200 bytes
 	for i := 0; i < entries; i++ {
 		key, val := generateKeyValue(i, valueSize)
@@ -72,14 +82,15 @@ func freeCache() {
 	}
 
 	firstKey, _ := generateKeyValue(1, valueSize)
-	checkFirstElement(freeCache.Get([]byte(firstKey)))
+	v, err := freeCache.Get([]byte(firstKey))
+	checkFirstElement(valueSize, v, err)
 
 	if freeCache.OverwriteCount() != 0 {
 		fmt.Println("Overwritten: ", freeCache.OverwriteCount())
 	}
 }
 
-func bigCache() {
+func bigCache(entries, valueSize int) {
 	config := bigcache.Config{
 		Shards:             256,
 		LifeWindow:         100 * time.Minute,
@@ -95,10 +106,11 @@ func bigCache() {
 	}
 
 	firstKey, _ := generateKeyValue(1, valueSize)
-	checkFirstElement(bigcache.Get(firstKey))
+	v, err := bigcache.Get(firstKey)
+	checkFirstElement(valueSize, v, err)
 }
 
-func checkFirstElement(val []byte, err error) {
+func checkFirstElement(valueSize int, val []byte, err error) {
 	_, expectedVal := generateKeyValue(1, valueSize)
 	if err != nil {
 		fmt.Println("Error in get: ", err.Error())
