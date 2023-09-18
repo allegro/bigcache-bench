@@ -154,11 +154,19 @@ func MapGet[T any](cs constructor[T], b *testing.B) {
 
 	hitCount := 0
 	for i := 0; i < b.N; i++ {
-		id := rand.Intn(maxEntryCount)
-		if e, ok := m[key(id)]; ok {
+		if e, ok := m["a"]; ok {
 			_ = (T)(e)
 			hitCount++
 		}
+	}
+}
+
+func MapGetBaseline[T any](b *testing.B) {
+	hitCount := 0
+	for i := 0; i < b.N; i++ {
+		id := rand.Intn(maxEntryCount)
+		key(id)
+		hitCount++
 	}
 }
 
@@ -230,8 +238,8 @@ func BigCacheGet[T any](cs constructor[T], b *testing.B) {
 
 	hitCount := 0
 	for i := 0; i < b.N; i++ {
-		id := rand.Intn(maxEntryCount)
-		data, _ := cache.Get(key(id))
+		//id := rand.Intn(maxEntryCount)
+		data, _ := cache.Get("a")
 		v, _ := cs.Parse(data)
 		_ = (T)(v)
 		hitCount++
@@ -260,6 +268,10 @@ func BenchmarkBigCacheGetForStruct(b *testing.B) {
 
 func BenchmarkMapGetForBytes(b *testing.B) {
 	MapGet[[]byte](byteConstructor{}, b)
+}
+
+func BenchmarkMapGetBaseline(b *testing.B) {
+	MapGetBaseline[[]byte](b)
 }
 
 func BenchmarkSyncMapGetForBytes(b *testing.B) {
