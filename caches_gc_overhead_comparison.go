@@ -8,7 +8,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/allegro/bigcache/v2"
+	"github.com/allegro/bigcache/v3"
 	"github.com/coocood/freecache"
 )
 
