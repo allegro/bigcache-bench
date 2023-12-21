@@ -10,6 +10,8 @@ import (
 
 	"github.com/allegro/bigcache/v3"
 	"github.com/coocood/freecache"
+	"github.com/elastic/go-freelru"
+	"github.com/zeebo/xxh3"
 )
 
 var previousPause time.Duration
@@ -50,6 +52,8 @@ func main() {
 		benchFunc = bigCache
 	case "stdmap":
 		benchFunc = stdMap
+	case "freelru":
+		benchFunc = freeLRU
 	default:
 		fmt.Printf("unknown cache: %s", c)
 		os.Exit(1)
@@ -87,6 +91,31 @@ func freeCache(kv *keyValueStore) {
 	if freeCache.OverwriteCount() != 0 {
 		fmt.Println("Overwritten: ", freeCache.OverwriteCount())
 	}
+}
+
+func freeLRU(kv *keyValueStore) {
+	// Using NewSynced() here to stay fair with concurrency.
+	// Using New() would be faster, but not thread-safe.
+	freeLRU, err := freelru.NewSynced[string, []byte](uint32(kv.Size()), hashString)
+	if err != nil {
+		fmt.Println("Failed to create freeLRU: ", err.Error())
+		return
+	}
+
+	for i := 0; i < kv.Size(); i++ {
+		freeLRU.Add(kv.Key(i), kv.Value(i))
+	}
+
+	v, ok := freeLRU.Get(kv.Key(1))
+	if !ok {
+		fmt.Println("First item not found")
+		return
+	}
+	checkFirstElement(kv.Value(1), v, nil)
+}
+
+func hashString(s string) uint32 {
+	return uint32(xxh3.HashString(s))
 }
 
 func bigCache(kv *keyValueStore) {
