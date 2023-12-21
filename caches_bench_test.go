@@ -61,7 +61,7 @@ func MapSet[T any](cs constructor[T], b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		m := make(map[string]T, maxEntryCount)
 		for n := 0; n < maxEntryCount; n++ {
-			m[key(n)] = cs.Get(n)
+			m[keys[n]] = cs.Get(n)
 		}
 	}
 }
@@ -70,7 +70,7 @@ func SyncMapSet[T any](cs constructor[T], b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var m sync.Map
 		for n := 0; n < maxEntryCount; n++ {
-			m.Store(key(n), cs.Get(n))
+			m.Store(keys[n], cs.Get(n))
 		}
 	}
 }
@@ -79,7 +79,7 @@ func OracamanMapSet[T any](cs constructor[T], b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		m := cmap.New[T]()
 		for n := 0; n < maxEntryCount; n++ {
-			m.Set(key(n), cs.Get(n))
+			m.Set(keys[n], cs.Get(n))
 		}
 	}
 }
@@ -89,7 +89,7 @@ func FreeCacheSet[T any](cs constructor[T], b *testing.B) {
 		cache := freecache.NewCache(maxEntryCount * maxEntrySize)
 		for n := 0; n < maxEntryCount; n++ {
 			data, _ := cs.ToBytes(cs.Get(n))
-			cache.Set([]byte(key(n)), data, 0)
+			cache.Set([]byte(keys[n]), data, 0)
 		}
 	}
 }
@@ -99,7 +99,7 @@ func BigCacheSet[T any](cs constructor[T], b *testing.B) {
 		cache := initBigCache(maxEntryCount)
 		for n := 0; n < maxEntryCount; n++ {
 			data, _ := cs.ToBytes(cs.Get(n))
-			cache.Set(key(n), data)
+			cache.Set(keys[n], data)
 		}
 	}
 }
@@ -148,14 +148,14 @@ func MapGet[T any](cs constructor[T], b *testing.B) {
 	b.StopTimer()
 	m := make(map[string]T)
 	for n := 0; n < maxEntryCount; n++ {
-		m[key(n)] = cs.Get(n)
+		m[keys[n]] = cs.Get(n)
 	}
 	b.StartTimer()
 
 	hitCount := 0
 	for i := 0; i < b.N; i++ {
 		id := rand.Intn(maxEntryCount)
-		if e, ok := m[key(id)]; ok {
+		if e, ok := m[keys[id]]; ok {
 			_ = (T)(e)
 			hitCount++
 		}
@@ -166,14 +166,14 @@ func SyncMapGet[T any](cs constructor[T], b *testing.B) {
 	b.StopTimer()
 	var m sync.Map
 	for n := 0; n < maxEntryCount; n++ {
-		m.Store(key(n), cs.Get(n))
+		m.Store(keys[n], cs.Get(n))
 	}
 	b.StartTimer()
 
 	hitCounter := 0
 	for i := 0; i < b.N; i++ {
 		id := rand.Intn(maxEntryCount)
-		e, ok := m.Load(key(id))
+		e, ok := m.Load(keys[id])
 		if ok {
 			_ = (T)(e.(T))
 			hitCounter++
@@ -185,14 +185,14 @@ func OracamanMapGet[T any](cs constructor[T], b *testing.B) {
 	b.StopTimer()
 	m := cmap.New[T]()
 	for n := 0; n < maxEntryCount; n++ {
-		m.Set(key(n), cs.Get(n))
+		m.Set(keys[n], cs.Get(n))
 	}
 	b.StartTimer()
 
 	hitCounter := 0
 	for i := 0; i < b.N; i++ {
 		id := rand.Intn(maxEntryCount)
-		e, ok := m.Get(key(id))
+		e, ok := m.Get(keys[id])
 		if ok {
 			_ = (T)(e)
 			hitCounter++
@@ -205,14 +205,14 @@ func FreeCacheGet[T any](cs constructor[T], b *testing.B) {
 	cache := freecache.NewCache(maxEntryCount * maxEntrySize)
 	for n := 0; n < maxEntryCount; n++ {
 		data, _ := cs.ToBytes(cs.Get(n))
-		cache.Set([]byte(key(n)), data, 0)
+		cache.Set([]byte(keys[n]), data, 0)
 	}
 	b.StartTimer()
 
 	hitCounter := 0
 	for i := 0; i < b.N; i++ {
 		id := rand.Intn(maxEntryCount)
-		data, _ := cache.Get([]byte(key(id)))
+		data, _ := cache.Get([]byte(keys[id]))
 		v, _ := cs.Parse(data)
 		_ = (T)(v)
 		hitCounter++
@@ -224,14 +224,14 @@ func BigCacheGet[T any](cs constructor[T], b *testing.B) {
 	cache := initBigCache(maxEntryCount)
 	for n := 0; n < maxEntryCount; n++ {
 		data, _ := cs.ToBytes(cs.Get(n))
-		cache.Set(key(n), data)
+		cache.Set(keys[n], data)
 	}
 	b.StartTimer()
 
 	hitCount := 0
 	for i := 0; i < b.N; i++ {
 		id := rand.Intn(maxEntryCount)
-		data, _ := cache.Get(key(id))
+		data, _ := cache.Get(keys[id])
 		v, _ := cs.Parse(data)
 		_ = (T)(v)
 		hitCount++
@@ -363,14 +363,14 @@ func SyncMapGetParallel[T any](cs constructor[T], b *testing.B) {
 	b.StopTimer()
 	var m sync.Map
 	for i := 0; i < maxEntryCount; i++ {
-		m.Store(key(i), cs.Get(i))
+		m.Store(keys[i], cs.Get(i))
 	}
 	b.StartTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			id := rand.Intn(maxEntryCount)
-			e, ok := m.Load(key(id))
+			e, ok := m.Load(keys[id])
 			if ok {
 				_ = (T)(e.(T))
 			}
@@ -382,14 +382,14 @@ func OracamanMapGetParallel[T any](cs constructor[T], b *testing.B) {
 	b.StopTimer()
 	m := cmap.New[T]()
 	for i := 0; i < maxEntryCount; i++ {
-		m.Set(key(i), cs.Get(i))
+		m.Set(keys[i], cs.Get(i))
 	}
 	b.StartTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			id := rand.Intn(maxEntryCount)
-			e, _ := m.Get(key(id))
+			e, _ := m.Get(keys[id])
 			_ = (T)(e)
 		}
 	})
@@ -400,14 +400,14 @@ func FreeCacheGetParallel[T any](cs constructor[T], b *testing.B) {
 	cache := freecache.NewCache(maxEntryCount * maxEntrySize)
 	for i := 0; i < maxEntryCount; i++ {
 		data, _ := cs.ToBytes(cs.Get(i))
-		cache.Set([]byte(key(i)), data, 0)
+		cache.Set([]byte(keys[i]), data, 0)
 	}
 	b.StartTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			id := rand.Intn(maxEntryCount)
-			data, _ := cache.Get([]byte(key(id)))
+			data, _ := cache.Get([]byte(keys[id]))
 			v, _ := cs.Parse(data)
 			_ = (T)(v)
 		}
@@ -419,14 +419,14 @@ func BigCacheGetParallel[T any](cs constructor[T], b *testing.B) {
 	cache := initBigCache(maxEntryCount)
 	for i := 0; i < maxEntryCount; i++ {
 		data, _ := cs.ToBytes(cs.Get(i))
-		cache.Set(key(i), data)
+		cache.Set(keys[i], data)
 	}
 	b.StartTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			id := rand.Intn(maxEntryCount)
-			data, _ := cache.Get(key(id))
+			data, _ := cache.Get(keys[id])
 			v, _ := cs.Parse(data)
 			_ = (T)(v)
 		}
@@ -465,8 +465,12 @@ func BenchmarkBigCacheGetParallelForBytes(b *testing.B) {
 	BigCacheGetParallel[[]byte](byteConstructor{}, b)
 }
 
-func key(i int) string {
-	return fmt.Sprintf("key-%010d", i)
+var keys []string = make([]string, maxEntryCount)
+
+func init() {
+	for i := 0; i < maxEntryCount; i++ {
+		keys[i] = fmt.Sprintf("key-%010d", i)
+	}
 }
 
 func value() []byte {
