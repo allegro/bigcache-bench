@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -17,13 +17,13 @@ const maxEntrySize = 256
 const maxEntryCount = 10000
 
 type myStruct struct {
-	Id int `json:"id"`
+	Id int
 }
 
 type constructor[T any] interface {
 	Get(int) T
-	Parse([]byte) (T, error)
-	ToBytes(T) ([]byte, error)
+	Parse([]byte) T
+	ToBytes(T) []byte
 }
 
 type byteConstructor []byte
@@ -32,12 +32,12 @@ func (bc byteConstructor) Get(n int) []byte {
 	return value()
 }
 
-func (bc byteConstructor) Parse(data []byte) ([]byte, error) {
-	return data, nil
+func (bc byteConstructor) Parse(data []byte) []byte {
+	return data
 }
 
-func (bc byteConstructor) ToBytes(v []byte) ([]byte, error) {
-	return v, nil
+func (bc byteConstructor) ToBytes(v []byte) []byte {
+	return v
 }
 
 type structConstructor struct {
@@ -47,14 +47,14 @@ func (sc structConstructor) Get(n int) myStruct {
 	return myStruct{Id: n}
 }
 
-func (sc structConstructor) Parse(data []byte) (myStruct, error) {
-	var s myStruct
-	err := json.Unmarshal(data, &s)
-	return s, err
+func (sc structConstructor) Parse(data []byte) myStruct {
+	return myStruct{Id: int(binary.BigEndian.Uint64(data))}
 }
 
-func (sc structConstructor) ToBytes(v myStruct) ([]byte, error) {
-	return json.Marshal(v)
+func (sc structConstructor) ToBytes(v myStruct) []byte {
+	b := [8]byte{}
+	binary.BigEndian.PutUint64(b[:], uint64(v.Id))
+	return b[:]
 }
 
 func MapSet[T any](cs constructor[T], b *testing.B) {
@@ -88,7 +88,7 @@ func FreeCacheSet[T any](cs constructor[T], b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		cache := freecache.NewCache(maxEntryCount * maxEntrySize)
 		for n := 0; n < maxEntryCount; n++ {
-			data, _ := cs.ToBytes(cs.Get(n))
+			data := cs.ToBytes(cs.Get(n))
 			cache.Set([]byte(keys[n]), data, 0)
 		}
 	}
@@ -98,7 +98,7 @@ func BigCacheSet[T any](cs constructor[T], b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		cache := initBigCache(maxEntryCount)
 		for n := 0; n < maxEntryCount; n++ {
-			data, _ := cs.ToBytes(cs.Get(n))
+			data := cs.ToBytes(cs.Get(n))
 			cache.Set(keys[n], data)
 		}
 	}
@@ -204,7 +204,7 @@ func FreeCacheGet[T any](cs constructor[T], b *testing.B) {
 	b.StopTimer()
 	cache := freecache.NewCache(maxEntryCount * maxEntrySize)
 	for n := 0; n < maxEntryCount; n++ {
-		data, _ := cs.ToBytes(cs.Get(n))
+		data := cs.ToBytes(cs.Get(n))
 		cache.Set([]byte(keys[n]), data, 0)
 	}
 	b.StartTimer()
@@ -213,7 +213,7 @@ func FreeCacheGet[T any](cs constructor[T], b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		id := rand.Intn(maxEntryCount)
 		data, _ := cache.Get([]byte(keys[id]))
-		v, _ := cs.Parse(data)
+		v := cs.Parse(data)
 		_ = (T)(v)
 		hitCounter++
 	}
@@ -223,7 +223,7 @@ func BigCacheGet[T any](cs constructor[T], b *testing.B) {
 	b.StopTimer()
 	cache := initBigCache(maxEntryCount)
 	for n := 0; n < maxEntryCount; n++ {
-		data, _ := cs.ToBytes(cs.Get(n))
+		data := cs.ToBytes(cs.Get(n))
 		cache.Set(keys[n], data)
 	}
 	b.StartTimer()
@@ -232,7 +232,7 @@ func BigCacheGet[T any](cs constructor[T], b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		id := rand.Intn(maxEntryCount)
 		data, _ := cache.Get(keys[id])
-		v, _ := cs.Parse(data)
+		v := cs.Parse(data)
 		_ = (T)(v)
 		hitCount++
 	}
@@ -308,7 +308,7 @@ func FreeCacheSetParallel[T any](cs constructor[T], b *testing.B) {
 		thread := rand.Intn(1000)
 		for pb.Next() {
 			id := rand.Intn(maxEntryCount)
-			data, _ := cs.ToBytes(cs.Get(id))
+			data := cs.ToBytes(cs.Get(id))
 			cache.Set([]byte(parallelKey(thread, id)), data, 0)
 		}
 	})
@@ -321,7 +321,7 @@ func BigCacheSetParallel[T any](cs constructor[T], b *testing.B) {
 		thread := rand.Intn(1000)
 		for pb.Next() {
 			id := rand.Intn(maxEntryCount)
-			data, _ := cs.ToBytes(cs.Get(id))
+			data := cs.ToBytes(cs.Get(id))
 			cache.Set(parallelKey(thread, id), data)
 		}
 	})
@@ -399,7 +399,7 @@ func FreeCacheGetParallel[T any](cs constructor[T], b *testing.B) {
 	b.StopTimer()
 	cache := freecache.NewCache(maxEntryCount * maxEntrySize)
 	for i := 0; i < maxEntryCount; i++ {
-		data, _ := cs.ToBytes(cs.Get(i))
+		data := cs.ToBytes(cs.Get(i))
 		cache.Set([]byte(keys[i]), data, 0)
 	}
 	b.StartTimer()
@@ -408,7 +408,7 @@ func FreeCacheGetParallel[T any](cs constructor[T], b *testing.B) {
 		for pb.Next() {
 			id := rand.Intn(maxEntryCount)
 			data, _ := cache.Get([]byte(keys[id]))
-			v, _ := cs.Parse(data)
+			v := cs.Parse(data)
 			_ = (T)(v)
 		}
 	})
@@ -418,7 +418,7 @@ func BigCacheGetParallel[T any](cs constructor[T], b *testing.B) {
 	b.StopTimer()
 	cache := initBigCache(maxEntryCount)
 	for i := 0; i < maxEntryCount; i++ {
-		data, _ := cs.ToBytes(cs.Get(i))
+		data := cs.ToBytes(cs.Get(i))
 		cache.Set(keys[i], data)
 	}
 	b.StartTimer()
@@ -427,7 +427,7 @@ func BigCacheGetParallel[T any](cs constructor[T], b *testing.B) {
 		for pb.Next() {
 			id := rand.Intn(maxEntryCount)
 			data, _ := cache.Get(keys[id])
-			v, _ := cs.Parse(data)
+			v := cs.Parse(data)
 			_ = (T)(v)
 		}
 	})
