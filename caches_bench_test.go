@@ -4,7 +4,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -280,11 +282,14 @@ func BenchmarkBigCacheGetForBytes(b *testing.B) {
 
 func SyncMapSetParallel[T any](cs constructor[T], b *testing.B) {
 	var m sync.Map
+
+	var threadIDCount atomic.Int32
+
 	b.RunParallel(func(pb *testing.PB) {
-		thread := rand.Intn(1000)
+		threadID := int(threadIDCount.Add(1)) - 1
 		for pb.Next() {
 			id := rand.Intn(maxEntryCount)
-			m.Store(parallelKey(thread, id), cs.Get(id))
+			m.Store(parallelKey(threadID, id), cs.Get(id))
 		}
 	})
 }
@@ -292,11 +297,13 @@ func SyncMapSetParallel[T any](cs constructor[T], b *testing.B) {
 func OracamanMapSetParallel[T any](cs constructor[T], b *testing.B) {
 	m := cmap.New[T]()
 
+	var threadIDCount atomic.Int32
+
 	b.RunParallel(func(pb *testing.PB) {
-		thread := rand.Intn(1000)
+		threadID := int(threadIDCount.Add(1)) - 1
 		for pb.Next() {
 			id := rand.Intn(maxEntryCount)
-			m.Set(parallelKey(thread, id), cs.Get(id))
+			m.Set(parallelKey(threadID, id), cs.Get(id))
 		}
 	})
 }
@@ -304,12 +311,14 @@ func OracamanMapSetParallel[T any](cs constructor[T], b *testing.B) {
 func FreeCacheSetParallel[T any](cs constructor[T], b *testing.B) {
 	cache := freecache.NewCache(maxEntryCount * maxEntrySize)
 
+	var threadIDCount atomic.Int32
+
 	b.RunParallel(func(pb *testing.PB) {
-		thread := rand.Intn(1000)
+		threadID := int(threadIDCount.Add(1)) - 1
 		for pb.Next() {
 			id := rand.Intn(maxEntryCount)
 			data := cs.ToBytes(cs.Get(id))
-			cache.Set([]byte(parallelKey(thread, id)), data, 0)
+			cache.Set([]byte(parallelKey(threadID, id)), data, 0)
 		}
 	})
 }
@@ -317,12 +326,14 @@ func FreeCacheSetParallel[T any](cs constructor[T], b *testing.B) {
 func BigCacheSetParallel[T any](cs constructor[T], b *testing.B) {
 	cache := initBigCache(maxEntryCount)
 
+	var threadIDCount atomic.Int32
+
 	b.RunParallel(func(pb *testing.PB) {
-		thread := rand.Intn(1000)
+		threadID := int(threadIDCount.Add(1)) - 1
 		for pb.Next() {
 			id := rand.Intn(maxEntryCount)
 			data := cs.ToBytes(cs.Get(id))
-			cache.Set(parallelKey(thread, id), data)
+			cache.Set(parallelKey(threadID, id), data)
 		}
 	})
 }
@@ -465,9 +476,22 @@ func BenchmarkBigCacheGetParallelForBytes(b *testing.B) {
 	BigCacheGetParallel[[]byte](byteConstructor{}, b)
 }
 
-var keys []string = make([]string, maxEntryCount)
+var (
+	keys         = make([]string, maxEntryCount)
+	parallelKeys [][]string
+)
 
 func init() {
+	nThreads := runtime.GOMAXPROCS(0)
+	parallelKeys = make([][]string, nThreads)
+
+	for threadID := 0; threadID < nThreads; threadID++ {
+		parallelKeys[threadID] = make([]string, maxEntryCount)
+		for i := 0; i < maxEntryCount; i++ {
+			parallelKeys[threadID][i] = fmt.Sprintf("key-%04d-%06d", threadID, i)
+		}
+	}
+
 	for i := 0; i < maxEntryCount; i++ {
 		keys[i] = fmt.Sprintf("key-%010d", i)
 	}
@@ -477,8 +501,8 @@ func value() []byte {
 	return make([]byte, 100)
 }
 
-func parallelKey(threadID int, counter int) string {
-	return fmt.Sprintf("key-%04d-%06d", threadID, counter)
+func parallelKey(threadID int, i int) string {
+	return parallelKeys[threadID][i]
 }
 
 func initBigCache(entriesInWindow int) *bigcache.BigCache {
