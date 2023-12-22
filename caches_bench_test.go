@@ -60,49 +60,64 @@ func (sc structConstructor) ToBytes(v myStruct) []byte {
 }
 
 func MapSet[T any](cs constructor[T], b *testing.B) {
+	m := make(map[string]T, maxEntryCount)
+
+	id := rand.Intn(maxEntryCount)
 	for i := 0; i < b.N; i++ {
-		m := make(map[string]T, maxEntryCount)
-		for n := 0; n < maxEntryCount; n++ {
-			m[keys[n]] = cs.Get(n)
+		if id >= maxEntryCount {
+			id = 0
 		}
+		m[keys[id]] = cs.Get(id)
 	}
 }
 
 func SyncMapSet[T any](cs constructor[T], b *testing.B) {
+	var m sync.Map
+
+	id := rand.Intn(maxEntryCount)
 	for i := 0; i < b.N; i++ {
-		var m sync.Map
-		for n := 0; n < maxEntryCount; n++ {
-			m.Store(keys[n], cs.Get(n))
+		if id >= maxEntryCount {
+			id = 0
 		}
+		m.Store(keys[id], cs.Get(id))
 	}
 }
 
 func OracamanMapSet[T any](cs constructor[T], b *testing.B) {
+	m := cmap.New[T]()
+
+	id := rand.Intn(maxEntryCount)
 	for i := 0; i < b.N; i++ {
-		m := cmap.New[T]()
-		for n := 0; n < maxEntryCount; n++ {
-			m.Set(keys[n], cs.Get(n))
+		if id >= maxEntryCount {
+			id = 0
 		}
+		m.Set(keys[id], cs.Get(id))
 	}
 }
 
 func FreeCacheSet[T any](cs constructor[T], b *testing.B) {
+	cache := freecache.NewCache(maxEntryCount * maxEntrySize)
+
+	id := rand.Intn(maxEntryCount)
 	for i := 0; i < b.N; i++ {
-		cache := freecache.NewCache(maxEntryCount * maxEntrySize)
-		for n := 0; n < maxEntryCount; n++ {
-			data := cs.ToBytes(cs.Get(n))
-			cache.Set([]byte(keys[n]), data, 0)
+		if id >= maxEntryCount {
+			id = 0
 		}
+		data := cs.ToBytes(cs.Get(id))
+		cache.Set([]byte(keys[id]), data, 0)
 	}
 }
 
 func BigCacheSet[T any](cs constructor[T], b *testing.B) {
+	cache := initBigCache(maxEntryCount)
+
+	id := rand.Intn(maxEntryCount)
 	for i := 0; i < b.N; i++ {
-		cache := initBigCache(maxEntryCount)
-		for n := 0; n < maxEntryCount; n++ {
-			data := cs.ToBytes(cs.Get(n))
-			cache.Set(keys[n], data)
+		if id >= maxEntryCount {
+			id = 0
 		}
+		data := cs.ToBytes(cs.Get(id))
+		cache.Set(keys[id], data)
 	}
 }
 
@@ -155,8 +170,11 @@ func MapGet[T any](cs constructor[T], b *testing.B) {
 	b.StartTimer()
 
 	hitCount := 0
+	id := rand.Intn(maxEntryCount)
 	for i := 0; i < b.N; i++ {
-		id := rand.Intn(maxEntryCount)
+		if id >= maxEntryCount {
+			id = 0
+		}
 		if e, ok := m[keys[id]]; ok {
 			_ = (T)(e)
 			hitCount++
@@ -173,8 +191,11 @@ func SyncMapGet[T any](cs constructor[T], b *testing.B) {
 	b.StartTimer()
 
 	hitCounter := 0
+	id := rand.Intn(maxEntryCount)
 	for i := 0; i < b.N; i++ {
-		id := rand.Intn(maxEntryCount)
+		if id >= maxEntryCount {
+			id = 0
+		}
 		e, ok := m.Load(keys[id])
 		if ok {
 			_ = (T)(e.(T))
@@ -192,8 +213,11 @@ func OracamanMapGet[T any](cs constructor[T], b *testing.B) {
 	b.StartTimer()
 
 	hitCounter := 0
+	id := rand.Intn(maxEntryCount)
 	for i := 0; i < b.N; i++ {
-		id := rand.Intn(maxEntryCount)
+		if id >= maxEntryCount {
+			id = 0
+		}
 		e, ok := m.Get(keys[id])
 		if ok {
 			_ = (T)(e)
@@ -212,8 +236,11 @@ func FreeCacheGet[T any](cs constructor[T], b *testing.B) {
 	b.StartTimer()
 
 	hitCounter := 0
+	id := rand.Intn(maxEntryCount)
 	for i := 0; i < b.N; i++ {
-		id := rand.Intn(maxEntryCount)
+		if id >= maxEntryCount {
+			id = 0
+		}
 		data, _ := cache.Get([]byte(keys[id]))
 		v := cs.Parse(data)
 		_ = (T)(v)
@@ -231,8 +258,11 @@ func BigCacheGet[T any](cs constructor[T], b *testing.B) {
 	b.StartTimer()
 
 	hitCount := 0
+	id := rand.Intn(maxEntryCount)
 	for i := 0; i < b.N; i++ {
-		id := rand.Intn(maxEntryCount)
+		if id >= maxEntryCount {
+			id = 0
+		}
 		data, _ := cache.Get(keys[id])
 		v := cs.Parse(data)
 		_ = (T)(v)
@@ -287,8 +317,10 @@ func SyncMapSetParallel[T any](cs constructor[T], b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		threadID := int(threadIDCount.Add(1)) - 1
-		for pb.Next() {
-			id := rand.Intn(maxEntryCount)
+		for id := rand.Intn(maxEntryCount); pb.Next(); id++ {
+			if id >= maxEntryCount {
+				id = 0
+			}
 			m.Store(parallelKey(threadID, id), cs.Get(id))
 		}
 	})
@@ -301,8 +333,10 @@ func OracamanMapSetParallel[T any](cs constructor[T], b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		threadID := int(threadIDCount.Add(1)) - 1
-		for pb.Next() {
-			id := rand.Intn(maxEntryCount)
+		for id := rand.Intn(maxEntryCount); pb.Next(); id++ {
+			if id >= maxEntryCount {
+				id = 0
+			}
 			m.Set(parallelKey(threadID, id), cs.Get(id))
 		}
 	})
@@ -315,8 +349,10 @@ func FreeCacheSetParallel[T any](cs constructor[T], b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		threadID := int(threadIDCount.Add(1)) - 1
-		for pb.Next() {
-			id := rand.Intn(maxEntryCount)
+		for id := rand.Intn(maxEntryCount); pb.Next(); id++ {
+			if id >= maxEntryCount {
+				id = 0
+			}
 			data := cs.ToBytes(cs.Get(id))
 			cache.Set([]byte(parallelKey(threadID, id)), data, 0)
 		}
@@ -330,8 +366,10 @@ func BigCacheSetParallel[T any](cs constructor[T], b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		threadID := int(threadIDCount.Add(1)) - 1
-		for pb.Next() {
-			id := rand.Intn(maxEntryCount)
+		for id := rand.Intn(maxEntryCount); pb.Next(); id++ {
+			if id >= maxEntryCount {
+				id = 0
+			}
 			data := cs.ToBytes(cs.Get(id))
 			cache.Set(parallelKey(threadID, id), data)
 		}
@@ -379,8 +417,10 @@ func SyncMapGetParallel[T any](cs constructor[T], b *testing.B) {
 	b.StartTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			id := rand.Intn(maxEntryCount)
+		for id := rand.Intn(maxEntryCount); pb.Next(); id++ {
+			if id >= maxEntryCount {
+				id = 0
+			}
 			e, ok := m.Load(keys[id])
 			if ok {
 				_ = (T)(e.(T))
@@ -398,8 +438,10 @@ func OracamanMapGetParallel[T any](cs constructor[T], b *testing.B) {
 	b.StartTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			id := rand.Intn(maxEntryCount)
+		for id := rand.Intn(maxEntryCount); pb.Next(); id++ {
+			if id >= maxEntryCount {
+				id = 0
+			}
 			e, _ := m.Get(keys[id])
 			_ = (T)(e)
 		}
@@ -416,8 +458,10 @@ func FreeCacheGetParallel[T any](cs constructor[T], b *testing.B) {
 	b.StartTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			id := rand.Intn(maxEntryCount)
+		for id := rand.Intn(maxEntryCount); pb.Next(); id++ {
+			if id >= maxEntryCount {
+				id = 0
+			}
 			data, _ := cache.Get([]byte(keys[id]))
 			v := cs.Parse(data)
 			_ = (T)(v)
@@ -435,8 +479,10 @@ func BigCacheGetParallel[T any](cs constructor[T], b *testing.B) {
 	b.StartTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			id := rand.Intn(maxEntryCount)
+		for id := rand.Intn(maxEntryCount); pb.Next(); id++ {
+			if id >= maxEntryCount {
+				id = 0
+			}
 			data, _ := cache.Get(keys[id])
 			v := cs.Parse(data)
 			_ = (T)(v)
@@ -488,12 +534,12 @@ func init() {
 	for threadID := 0; threadID < nThreads; threadID++ {
 		parallelKeys[threadID] = make([]string, maxEntryCount)
 		for i := 0; i < maxEntryCount; i++ {
-			parallelKeys[threadID][i] = fmt.Sprintf("key-%04d-%06d", threadID, i)
+			parallelKeys[threadID][i] = fmt.Sprintf("key-%04d-%06d", threadID, rand.Uint64())
 		}
 	}
 
 	for i := 0; i < maxEntryCount; i++ {
-		keys[i] = fmt.Sprintf("key-%010d", i)
+		keys[i] = fmt.Sprintf("key-%010d", rand.Uint64())
 	}
 }
 
