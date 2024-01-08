@@ -10,6 +10,8 @@ import (
 
 	"github.com/allegro/bigcache/v3"
 	"github.com/coocood/freecache"
+	"github.com/elastic/go-freelru"
+	"github.com/zeebo/xxh3"
 )
 
 var previousPause time.Duration
@@ -41,7 +43,7 @@ func main() {
 	fmt.Println("Number of repeats: ", repeat)
 	fmt.Println("Value size:        ", valueSize)
 
-	var benchFunc func(entries, valueSize int)
+	var benchFunc func(kv *keyValueStore)
 
 	switch c {
 	case "freecache":
@@ -50,68 +52,91 @@ func main() {
 		benchFunc = bigCache
 	case "stdmap":
 		benchFunc = stdMap
+	case "freelru":
+		benchFunc = freeLRU
 	default:
 		fmt.Printf("unknown cache: %s", c)
 		os.Exit(1)
 	}
 
-	benchFunc(entries, valueSize)
+	kv := newKeyValueStore(entries, valueSize)
+
+	benchFunc(kv)
 	fmt.Println("GC pause for startup: ", gcPause())
 	for i := 0; i < repeat; i++ {
-		benchFunc(entries, valueSize)
+		benchFunc(kv)
 	}
 
 	fmt.Printf("GC pause for %s: %s\n", c, gcPause())
 }
 
-func stdMap(entries, valueSize int) {
+func stdMap(kv *keyValueStore) {
 	mapCache := make(map[string][]byte)
-	for i := 0; i < entries; i++ {
-		key, val := generateKeyValue(i, valueSize)
-		mapCache[key] = val
+	for i := 0; i < kv.Size(); i++ {
+		mapCache[kv.Key(i)] = kv.Value(i)
 	}
 }
 
-func freeCache(entries, valueSize int) {
-	freeCache := freecache.NewCache(entries * 200) //allocate entries * 200 bytes
-	for i := 0; i < entries; i++ {
-		key, val := generateKeyValue(i, valueSize)
-		if err := freeCache.Set([]byte(key), val, 0); err != nil {
+func freeCache(kv *keyValueStore) {
+	freeCache := freecache.NewCache(kv.Size() * 200) //allocate entries * 200 bytes
+	for i := 0; i < kv.Size(); i++ {
+		if err := freeCache.Set([]byte(kv.Key(i)), kv.Value(i), 0); err != nil {
 			fmt.Println("Error in set: ", err.Error())
 		}
 	}
 
-	firstKey, _ := generateKeyValue(1, valueSize)
-	v, err := freeCache.Get([]byte(firstKey))
-	checkFirstElement(valueSize, v, err)
+	v, err := freeCache.Get([]byte(kv.Key(1)))
+	checkFirstElement(kv.Value(1), v, err)
 
 	if freeCache.OverwriteCount() != 0 {
 		fmt.Println("Overwritten: ", freeCache.OverwriteCount())
 	}
 }
 
-func bigCache(entries, valueSize int) {
+func freeLRU(kv *keyValueStore) {
+	// Using NewSynced() here to stay fair with concurrency.
+	// Using New() would be faster, but not thread-safe.
+	freeLRU, err := freelru.NewSynced[string, []byte](uint32(kv.Size()), hashString)
+	if err != nil {
+		fmt.Println("Failed to create freeLRU: ", err.Error())
+		return
+	}
+
+	for i := 0; i < kv.Size(); i++ {
+		freeLRU.Add(kv.Key(i), kv.Value(i))
+	}
+
+	v, ok := freeLRU.Get(kv.Key(1))
+	if !ok {
+		fmt.Println("First item not found")
+		return
+	}
+	checkFirstElement(kv.Value(1), v, nil)
+}
+
+func hashString(s string) uint32 {
+	return uint32(xxh3.HashString(s))
+}
+
+func bigCache(kv *keyValueStore) {
 	config := bigcache.Config{
 		Shards:             256,
 		LifeWindow:         100 * time.Minute,
-		MaxEntriesInWindow: entries,
+		MaxEntriesInWindow: kv.Size(),
 		MaxEntrySize:       200,
 		Verbose:            true,
 	}
 
 	bigcache, _ := bigcache.NewBigCache(config)
-	for i := 0; i < entries; i++ {
-		key, val := generateKeyValue(i, valueSize)
-		bigcache.Set(key, val)
+	for i := 0; i < kv.Size(); i++ {
+		bigcache.Set(kv.Key(i), kv.Value(i))
 	}
 
-	firstKey, _ := generateKeyValue(1, valueSize)
-	v, err := bigcache.Get(firstKey)
-	checkFirstElement(valueSize, v, err)
+	v, err := bigcache.Get(kv.Key(1))
+	checkFirstElement(kv.Value(1), v, err)
 }
 
-func checkFirstElement(valueSize int, val []byte, err error) {
-	_, expectedVal := generateKeyValue(1, valueSize)
+func checkFirstElement(expectedVal []byte, val []byte, err error) {
 	if err != nil {
 		fmt.Println("Error in get: ", err.Error())
 	} else if string(val) != string(expectedVal) {
@@ -119,10 +144,38 @@ func checkFirstElement(valueSize int, val []byte, err error) {
 	}
 }
 
-func generateKeyValue(index int, valSize int) (string, []byte) {
-	key := fmt.Sprintf("key-%010d", index)
-	fixedNumber := []byte(fmt.Sprintf("%010d", index))
-	val := append(make([]byte, valSize-10), fixedNumber...)
+type keyValueStore struct {
+	valueSize int
+	keys      []string
+	values    []byte
+}
 
-	return key, val
+func newKeyValueStore(entries int, valueSize int) *keyValueStore {
+	keys := make([]string, entries)
+	values := make([]byte, entries*valueSize)
+
+	for i := 0; i < entries; i++ {
+		keys[i] = fmt.Sprintf("key-%010d", i)
+		// Reuse the underlying data of key to generate the value without allocating more memory.
+		value := (([]byte)(keys[i]))[4:]
+		copy(values[(i+1)*valueSize-len(value):], value)
+	}
+
+	return &keyValueStore{
+		valueSize: valueSize,
+		keys:      keys,
+		values:    values,
+	}
+}
+
+func (store *keyValueStore) Size() int {
+	return len(store.keys)
+}
+
+func (store *keyValueStore) Key(index int) string {
+	return store.keys[index]
+}
+
+func (store *keyValueStore) Value(index int) []byte {
+	return store.values[index*store.valueSize : (index+1)*store.valueSize]
 }
